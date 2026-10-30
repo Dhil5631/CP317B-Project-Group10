@@ -1,0 +1,321 @@
+"""Meridian Car Rental - Sprint 1 prototype (Group 10, CP317B).
+
+Stories I built this sprint: UI-1 Create Account, UI-6 Log In,
+ADM-2 Manager Access and UI-2 Search Cars.
+"""
+import os
+import re
+import secrets
+import sqlite3
+from datetime import date, datetime, timedelta
+from functools import wraps
+
+from flask import (Flask, abort, flash, g, redirect, render_template, request,
+                   session, url_for)
+from werkzeug.security import check_password_hash, generate_password_hash
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# I keep the settings up here so they are easy to change later
+CAR_TYPES = ["SUV", "Sedan", "Compact", "Truck"]
+MAX_FAILED_LOGINS = 3   # wrong passwords allowed before the account locks
+LOCK_MINUTES = 5        # how long a locked account has to wait
+SESSION_MINUTES = 15    # logged out after this much inactivity
+# simple email check: something@something.something with no spaces
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+# starter fleet so the search page has data to show
+SEED_CARS = [
+    ("Toyota", "RAV4", "SUV", 5, 79.0), ("Honda", "CR-V", "SUV", 5, 76.0),
+    ("Ford", "Escape", "SUV", 5, 74.0), ("Honda", "Civic", "Sedan", 5, 55.0),
+    ("Toyota", "Corolla", "Sedan", 5, 52.0), ("Hyundai", "Elantra", "Sedan", 5, 50.0),
+    ("Toyota", "Yaris", "Compact", 4, 40.0), ("Kia", "Rio", "Compact", 4, 38.0),
+    ("Ford", "F-150", "Truck", 3, 95.0),
+]
+
+
+# I use an app factory so the tests can create a fresh app with a temporary database
+def create_app(test_config=None):
+    app = Flask(__name__)
+    app.config.update(
+        # the secret key signs the session cookie; a real deployment would set its own
+        SECRET_KEY=os.environ.get("SECRET_KEY", "dev-only-change-me"),
+        DATABASE=os.path.join(BASE_DIR, "carrental.db"),
+        PERMANENT_SESSION_LIFETIME=timedelta(minutes=SESSION_MINUTES),
+        SESSION_COOKIE_HTTPONLY=True,   # JavaScript cannot read the cookie
+        SESSION_COOKIE_SAMESITE="Lax",  # cookie is not sent on cross-site posts
+    )
+    if test_config:
+        app.config.update(test_config)
+
+    # ---------- database ----------
+    def get_db():
+        # one connection per request, stored on Flask's g object
+        if "db" not in g:
+            g.db = sqlite3.connect(app.config["DATABASE"])
+            g.db.row_factory = sqlite3.Row  # lets me read columns by name
+            g.db.execute("PRAGMA foreign_keys = ON")  # SQLite skips foreign keys unless I turn this on
+        return g.db
+
+    @app.teardown_appcontext
+    def close_db(_exc):
+        db = g.pop("db", None)
+        if db is not None:
+            db.close()
+
+    def init_db():
+        # creates the tables and seeds the demo data the first time the app runs
+        db = get_db()
+        with open(os.path.join(BASE_DIR, "schema.sql")) as f:
+            db.executescript(f.read())
+        # only add the demo manager if there is not one already
+        if not db.execute("SELECT 1 FROM users WHERE role='manager'").fetchone():
+            db.execute(
+                "INSERT INTO users (full_name,email,phone,licence_no,password_hash,role)"
+                " VALUES (?,?,?,?,?,'manager')",
+                ("Demo Manager", "manager@carrental.com", "5195550100", "N/A",
+                 generate_password_hash("Manager123!")))
+        if not db.execute("SELECT 1 FROM cars").fetchone():
+            db.executemany(
+                "INSERT INTO cars (make,model,car_type,seats,daily_rate) VALUES (?,?,?,?,?)",
+                SEED_CARS)
+            # I add two bookings so I can test that search hides cars that are taken
+            mgr = db.execute("SELECT id FROM users WHERE role='manager'").fetchone()["id"]
+            today = date.today()
+            for car_id, a, b in ((1, 3, 6), (4, 2, 4)):
+                db.execute(
+                    "INSERT INTO reservations (user_id,car_id,start_date,end_date) VALUES (?,?,?,?)",
+                    (mgr, car_id, (today + timedelta(days=a)).isoformat(),
+                     (today + timedelta(days=b)).isoformat()))
+        db.commit()
+
+    app.init_db = init_db
+    with app.app_context():
+        init_db()
+
+    # ---------- security helpers ----------
+    # CSRF protection: every form carries a random token that must match the one in my session
+    def csrf_token():
+        if "_csrf" not in session:
+            session["_csrf"] = secrets.token_hex(16)
+        return session["_csrf"]
+
+    app.jinja_env.globals["csrf_token"] = csrf_token
+
+    @app.before_request
+    def check_csrf():
+        if request.method == "POST":
+            sent = request.form.get("_csrf", "")
+            # compare_digest avoids leaking information through timing differences
+            if not sent or not secrets.compare_digest(sent, session.get("_csrf", "")):
+                abort(400, "Invalid form token. Reload the page and try again.")
+
+    # runs before every request: looks up who is logged in (if anyone)
+    @app.before_request
+    def load_user():
+        g.user = None
+        uid = session.get("user_id")
+        if uid is not None:
+            g.user = get_db().execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+            session.permanent = True  # restarts the 15 minute inactivity timer on each request
+
+    # a few safe default headers on every response
+    @app.after_request
+    def headers(resp):
+        resp.headers["X-Content-Type-Options"] = "nosniff"
+        resp.headers["X-Frame-Options"] = "DENY"
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
+    # decorator: sends people who are not logged in to the login page
+    def login_required(view):
+        @wraps(view)
+        def wrapped(*a, **kw):
+            if g.user is None:
+                flash("Please log in to continue.", "error")
+                return redirect(url_for("login"))
+            return view(*a, **kw)
+        return wrapped
+
+    # decorator for ADM-2: the role is checked on the server, so typing the URL does not bypass it
+    def manager_required(view):
+        @wraps(view)
+        @login_required
+        def wrapped(*a, **kw):
+            if g.user["role"] != "manager":
+                abort(403)  # logged in but not a manager
+            return view(*a, **kw)
+        return wrapped
+
+    # managers and customers land on different pages after login
+    def home_for(user):
+        return url_for("manager_home") if user["role"] == "manager" else url_for("search")
+
+    # ---------- routes ----------
+    @app.route("/")
+    def index():
+        return redirect(home_for(g.user)) if g.user else redirect(url_for("login"))
+
+    # UI-1 Create Account
+    @app.route("/register", methods=["GET", "POST"])
+    def register():
+        form, errors = {}, {}
+        if request.method == "POST":
+            form = {k: request.form.get(k, "").strip() for k in
+                    ("full_name", "email", "phone", "licence_no")}
+            password = request.form.get("password", "")
+            confirm = request.form.get("confirm", "")
+            form["email"] = form["email"].lower()  # so Test@x.com and test@x.com are the same account
+            if len(form["full_name"]) < 2:
+                errors["full_name"] = "Enter your full name."
+            if not EMAIL_RE.match(form["email"]):
+                errors["email"] = "Enter a valid email address, like name@example.com."
+            digits = re.sub(r"\D", "", form["phone"])  # strip dashes/spaces and keep only the digits
+            if len(digits) < 10 or len(digits) > 15:
+                errors["phone"] = "Enter a phone number with at least 10 digits."
+            if not re.fullmatch(r"[A-Za-z0-9\- ]{5,20}", form["licence_no"]):
+                errors["licence_no"] = "Enter your licence number (5 to 20 letters or numbers)."
+            # password rule: 8+ characters with at least one letter and one number
+            if len(password) < 8 or not re.search(r"\d", password) or not re.search(r"[A-Za-z]", password):
+                errors["password"] = "Use at least 8 characters, with letters and numbers."
+            if password != confirm:
+                errors["confirm"] = "The passwords do not match."
+            if not request.form.get("consent"):
+                errors["consent"] = "You must agree to how we use your data to create an account."
+            db = get_db()
+            # only check for a duplicate if the email itself looked valid
+            if "email" not in errors and db.execute(
+                    "SELECT 1 FROM users WHERE email=?", (form["email"],)).fetchone():
+                errors["email"] = "An account with this email already exists."
+            if not errors:
+                # "?" placeholders keep user input out of the SQL string (prevents SQL injection)
+                # and I store a hash of the password, never the password itself
+                db.execute(
+                    "INSERT INTO users (full_name,email,phone,licence_no,password_hash)"
+                    " VALUES (?,?,?,?,?)",
+                    (form["full_name"], form["email"], digits, form["licence_no"],
+                     generate_password_hash(password)))
+                db.commit()
+                flash("Account created. You can log in now.", "success")
+                return redirect(url_for("login"))
+        return render_template("register.html", form=form, errors=errors)
+
+    # UI-6 Log In / Log Out
+    @app.route("/login", methods=["GET", "POST"])
+    def login():
+        if g.user:
+            return redirect(home_for(g.user))
+        email = ""
+        if request.method == "POST":
+            email = request.form.get("email", "").strip().lower()
+            password = request.form.get("password", "")
+            db = get_db()
+            user = db.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+            now = datetime.now()
+            # step 1: if the account is locked, refuse even a correct password
+            if user and user["locked_until"] and datetime.fromisoformat(user["locked_until"]) > now:
+                mins = int((datetime.fromisoformat(user["locked_until"]) - now).total_seconds() // 60) + 1
+                flash(f"Too many failed attempts. Try again in {mins} minute(s).", "error")
+            # step 2: correct password, so reset the failure counter and start the session
+            elif user and check_password_hash(user["password_hash"], password):
+                db.execute("UPDATE users SET failed_attempts=0, locked_until=NULL WHERE id=?",
+                           (user["id"],))
+                db.commit()
+                session.clear()  # drop any old session data first (prevents session fixation)
+                session["user_id"] = user["id"]
+                session.permanent = True
+                return redirect(home_for(user))
+            # step 3: wrong password, so count the failure and lock after the limit
+            else:
+                if user:
+                    attempts = user["failed_attempts"] + 1
+                    locked = None
+                    if attempts >= MAX_FAILED_LOGINS:
+                        locked = (now + timedelta(minutes=LOCK_MINUTES)).isoformat()
+                        attempts = 0  # counter restarts once the lock is set
+                    db.execute("UPDATE users SET failed_attempts=?, locked_until=? WHERE id=?",
+                               (attempts, locked, user["id"]))
+                    db.commit()
+                # same message whether or not the email exists, so nobody can guess which emails are registered
+                flash("Incorrect email or password.", "error")
+        return render_template("login.html", email=email)
+
+    # logout is a POST so another site cannot log someone out with a plain link
+    @app.route("/logout", methods=["POST"])
+    def logout():
+        session.clear()
+        flash("You have been logged out.", "success")
+        return redirect(url_for("login"))
+
+    # ADM-2 Manager Access
+    @app.route("/manager")
+    @manager_required
+    def manager_home():
+        db = get_db()
+        # simple counts for the manager home page
+        stats = {
+            "customers": db.execute("SELECT COUNT(*) FROM users WHERE role='customer'").fetchone()[0],
+            "cars": db.execute("SELECT COUNT(*) FROM cars").fetchone()[0],
+            "reservations": db.execute(
+                "SELECT COUNT(*) FROM reservations WHERE status='confirmed'").fetchone()[0],
+        }
+        return render_template("manager_home.html", stats=stats)
+
+    # UI-2 Search Cars
+    @app.route("/search")
+    @login_required
+    def search():
+        if g.user["role"] == "manager":
+            return redirect(url_for("manager_home"))  # managers do not rent cars
+        car_type = request.args.get("car_type", "")
+        pickup = request.args.get("pickup", "")
+        ret = request.args.get("return", "")
+        errors, cars, searched = {}, [], False
+        # only validate and search once the form has actually been submitted
+        if car_type or pickup or ret:
+            searched = True
+            if car_type not in CAR_TYPES:
+                errors["car_type"] = "Choose a car type."
+            try:
+                d1 = date.fromisoformat(pickup)
+                if d1 < date.today():
+                    errors["pickup"] = "Pickup date cannot be in the past."
+            except ValueError:
+                errors["pickup"] = "Choose a pickup date."
+                d1 = None
+            try:
+                d2 = date.fromisoformat(ret)
+            except ValueError:
+                errors["return"] = "Choose a return date."
+                d2 = None
+            if d1 and d2 and d2 < d1:
+                errors["return"] = "Return date must be on or after the pickup date."
+            # Availability query: a car is free if it has NO confirmed booking that overlaps the dates.
+            # Two ranges overlap when start <= other end AND end >= other start.
+            if not errors:
+                cars = get_db().execute(
+                    """SELECT * FROM cars c WHERE c.car_type = ? AND NOT EXISTS (
+                           SELECT 1 FROM reservations r
+                           WHERE r.car_id = c.id AND r.status = 'confirmed'
+                             AND r.start_date <= ? AND r.end_date >= ?)
+                       ORDER BY c.daily_rate, c.id""",
+                    (car_type, d2.isoformat(), d1.isoformat())).fetchall()
+        return render_template("search.html", car_types=CAR_TYPES, cars=cars, errors=errors,
+                               searched=searched, car_type=car_type, pickup=pickup, ret=ret,
+                               today=date.today().isoformat())
+
+    # friendly pages for errors instead of the default plain ones
+    @app.errorhandler(403)
+    def forbidden(_e):
+        return render_template("error.html", code=403, title="Access denied",
+                               msg="This page is for rental managers only."), 403
+
+    @app.errorhandler(400)
+    def bad_request(e):
+        return render_template("error.html", code=400, title="Something went wrong",
+                               msg=getattr(e, "description", "Bad request.")), 400
+
+    return app
+
+
+if __name__ == "__main__":
+    create_app().run(debug=True)

@@ -1,0 +1,29 @@
+tests/test_app.py::test_register_success_redirects_to_login PASSED
+tests/test_app.py::test_register_stores_hash_not_plain_password PASSED
+tests/test_app.py::test_register_duplicate_email_rejected PASSED
+tests/test_app.py::test_register_validation_errors
+tests/test_app.py::test_register_validation_errors
+tests/test_app.py::test_register_validation_errors
+tests/test_app.py::test_register_validation_errors
+tests/test_app.py::test_register_validation_errors
+tests/test_app.py::test_register_validation_errors
+tests/test_app.py::test_register_validation_errors
+tests/test_app.py::test_register_requires_csrf_token PASSED
+tests/test_app.py::test_login_success_goes_to_search PASSED
+tests/test_app.py::test_login_wrong_password_shows_error PASSED
+tests/test_app.py::test_login_unknown_email_same_message PASSED
+tests/test_app.py::test_account_locks_after_three_failures PASSED
+tests/test_app.py::test_logout_ends_session PASSED
+tests/test_app.py::test_session_cookie_has_inactivity_lifetime PASSED
+tests/test_app.py::test_manager_can_open_manager_page PASSED
+tests/test_app.py::test_customer_blocked_from_manager_page PASSED
+tests/test_app.py::test_anonymous_redirected_from_manager_page PASSED
+tests/test_app.py::test_search_requires_login PASSED
+tests/test_app.py::test_search_returns_only_requested_type PASSED
+tests/test_app.py::test_search_excludes_booked_car_on_overlap PASSED
+tests/test_app.py::test_search_includes_car_when_no_overlap PASSED
+tests/test_app.py::test_search_no_results_message PASSED
+tests/test_app.py::test_search_rejects_return_before_pickup PASSED
+tests/test_app.py::test_search_rejects_past_pickup PASSED
+tests/test_app.py::test_search_sql_injection_is_harmless PASSED
+============================== 28 passed in 5.83s ==============================

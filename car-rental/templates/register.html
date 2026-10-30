@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% from "_field.html" import field %}
+{% block title %}Create Account{% endblock %}
+{% block content %}
+<div class="auth">
+  <aside>
+    <div>
+      <h2>Create your account in one minute.</h2>
+      <p>We ask only for what a rental needs. You can view or delete your details at any time.</p>
+    </div>
+    <ul class="steps">
+      <li>Name and contact details</li>
+      <li>Driver licence number</li>
+      <li>A password you choose</li>
+    </ul>
+  </aside>
+  <section class="panel">
+  <h1>Create Account</h1>
+  <form method="post" novalidate>
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    {{ field('full_name','Full name','text',form.get('full_name',''),errors,'name') }}
+    {{ field('email','Email','email',form.get('email',''),errors,'email') }}
+    {{ field('phone','Phone number','tel',form.get('phone',''),errors,'tel','At least 10 digits') }}
+    {{ field('licence_no','Driver licence number','text',form.get('licence_no',''),errors,'off') }}
+    {{ field('password','Password','password','',errors,'new-password','At least 8 characters, with letters and numbers') }}
+    {{ field('confirm','Confirm password','password','',errors,'new-password') }}
+    <div class="field check">
+      <input id="consent" name="consent" type="checkbox" {% if errors.get('consent') %}aria-invalid="true" aria-describedby="consent-err"{% endif %}>
+      <label for="consent">I agree that my name, contact details and licence number are used only to process my rentals, and I can view or delete them at any time.</label>
+      {% if errors.get('consent') %}<span class="err" id="consent-err">{{ errors['consent'] }}</span>{% endif %}
+    </div>
+    <button class="btn block" type="submit">Create Account</button>
+  </form>
+  <p class="alt">Already have an account? <a href="{{ url_for('login') }}">Log in</a></p>
+  </section>
+</div>
+{% endblock %}

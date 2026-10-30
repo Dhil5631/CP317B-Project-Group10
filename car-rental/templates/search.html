@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Search Cars{% endblock %}
+{% block content %}
+<div class="counter">
+  <form class="ticket" method="get" action="{{ url_for('search') }}" novalidate>
+    <h1>Search Cars</h1>
+    <div class="field">
+      <label for="car_type">Car type</label>
+      <select id="car_type" name="car_type" required {% if errors.get('car_type') %}aria-invalid="true" aria-describedby="car_type-err"{% endif %}>
+        <option value="">Choose a type</option>
+        {% for t in car_types %}<option value="{{ t }}" {{ 'selected' if t == car_type }}>{{ t }}</option>{% endfor %}
+      </select>
+      {% if errors.get('car_type') %}<span class="err" id="car_type-err">{{ errors['car_type'] }}</span>{% endif %}
+    </div>
+    <div class="field">
+      <label for="pickup">Pickup date</label>
+      <input id="pickup" name="pickup" type="date" min="{{ today }}" value="{{ pickup }}" required {% if errors.get('pickup') %}aria-invalid="true" aria-describedby="pickup-err"{% endif %}>
+      {% if errors.get('pickup') %}<span class="err" id="pickup-err">{{ errors['pickup'] }}</span>{% endif %}
+    </div>
+    <div class="field">
+      <label for="return">Return date</label>
+      <input id="return" name="return" type="date" min="{{ today }}" value="{{ ret }}" required {% if errors.get('return') %}aria-invalid="true" aria-describedby="return-err"{% endif %}>
+      {% if errors.get('return') %}<span class="err" id="return-err">{{ errors['return'] }}</span>{% endif %}
+    </div>
+    <button class="btn accent block" type="submit">Search</button>
+  </form>
+
+  {# aria-live makes screen readers announce the new results after a search #}
+  <section class="results" aria-live="polite">
+    {% if searched and not errors %}
+      <h2>Available cars <span class="count">{{ cars|length }} found</span></h2>
+      {% if cars %}
+      <ul class="cars">
+        {% for c in cars %}
+        <li>
+          <span class="plate">{{ c['car_type'] }}</span>
+          <div><div class="car-name">{{ c['make'] }} {{ c['model'] }}</div>
+               <div class="car-meta">{{ c['seats'] }} seats</div></div>
+          <div class="price">${{ '%.0f'|format(c['daily_rate']) }}<small>per day</small></div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="empty"><strong>No cars are available for those dates.</strong>Try different dates or another car type.</div>
+      {% endif %}
+    {% else %}
+      <div class="empty"><strong>Find a car for your trip</strong>Choose a car type and your pickup and return dates, then select Search.</div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

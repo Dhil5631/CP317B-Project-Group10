@@ -1,0 +1,11 @@
+{# one reusable form field: label, input and error message, wired together for screen readers #}
+{% macro field(name, label, type='text', value='', errors={}, autocomplete='off', hint='', required=True) %}
+<div class="field">
+  <label for="{{ name }}">{{ label }}</label>
+  {% if hint %}<span class="hint" id="{{ name }}-hint">{{ hint }}</span>{% endif %}
+  <input id="{{ name }}" name="{{ name }}" type="{{ type }}" value="{{ value }}"
+         autocomplete="{{ autocomplete }}" {% if required %}required{% endif %}
+         {% if errors.get(name) %}aria-invalid="true" aria-describedby="{{ name }}-err"{% elif hint %}aria-describedby="{{ name }}-hint"{% endif %}>
+  {% if errors.get(name) %}<span class="err" id="{{ name }}-err">{{ errors[name] }}</span>{% endif %}
+</div>
+{% endmacro %}

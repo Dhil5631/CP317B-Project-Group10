@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Manager Home{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Manager Home</h1>
+  <p>Signed in as {{ g.user['full_name'] }}, rental manager.</p>
+</div>
+<div class="figures">
+  <div><span class="num">{{ stats.cars }}</span>cars in the fleet</div>
+  <div><span class="num">{{ stats.reservations }}</span>active reservations</div>
+  <div><span class="num">{{ stats.customers }}</span>registered customers</div>
+</div>
+<p class="note">Fleet management and reports arrive in Sprints 2 and 3.</p>
+{% endblock %}

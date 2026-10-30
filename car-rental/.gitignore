@@ -1,0 +1,8 @@
+__pycache__/
+.pytest_cache/
+*.pyc
+carrental.db
+venv/
+.venv/
+.env
+.DS_Store

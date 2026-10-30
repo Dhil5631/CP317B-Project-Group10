@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% from "_field.html" import field %}
+{% block title %}Log In{% endblock %}
+{% block content %}
+<div class="auth">
+  <aside>
+    <div>
+      <h2>Pick a car, pick your dates, done.</h2>
+      <p>Log in to see which cars are free for your trip.</p>
+    </div>
+    <ul class="steps">
+      <li>Choose a car type and dates</li>
+      <li>See only cars that are free</li>
+      <li>Reserve in a few steps</li>
+    </ul>
+  </aside>
+  <section class="panel">
+    <h1>Welcome to Meridian</h1>
+    <form method="post" novalidate>
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      {{ field('email','Email','email',email,{},'username') }}
+      {{ field('password','Password','password','',{},'current-password') }}
+      <button class="btn block" type="submit">Log In</button>
+    </form>
+    <p class="alt">New here? <a href="{{ url_for('register') }}">Create an account</a></p>
+  </section>
+</div>
+{% endblock %}

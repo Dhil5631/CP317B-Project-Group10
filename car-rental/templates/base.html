@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Car Rental{% endblock %} | Meridian</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='logo.svg') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  {# skip link: lets keyboard users jump past the menu #}
+  <a class="skip" href="#main">Skip to main content</a>
+  <header>
+    <div class="bar">
+      <a class="brand" href="{{ url_for('index') }}"><img class="mark" src="{{ url_for('static', filename='logo.svg') }}" alt="" width="38" height="38"><span class="word">Meridian<small>Car Rental</small></span></a>
+      <nav aria-label="Main">
+        {% if g.user %}
+          {% if g.user['role'] == 'manager' %}
+            <a href="{{ url_for('manager_home') }}" {% if request.endpoint == 'manager_home' %}aria-current="page"{% endif %}>Manager Home</a>
+          {% else %}
+            <a href="{{ url_for('search') }}" {% if request.endpoint == 'search' %}aria-current="page"{% endif %}>Search Cars</a>
+          {% endif %}
+          <span class="who">{{ g.user['full_name'] }}</span>
+          <form method="post" action="{{ url_for('logout') }}" class="inline">
+            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+            <button class="btn ghost" type="submit">Log Out</button>
+          </form>
+        {% else %}
+          <a href="{{ url_for('login') }}" {% if request.endpoint == 'login' %}aria-current="page"{% endif %}>Log In</a>
+          <a href="{{ url_for('register') }}" {% if request.endpoint == 'register' %}aria-current="page"{% endif %}>Create Account</a>
+        {% endif %}
+      </nav>
+    </div>
+  </header>
+  <main id="main">
+    {% with msgs = get_flashed_messages(with_categories=true) %}
+      {% for cat, m in msgs %}
+        <div class="flash {{ cat }}" role="{{ 'alert' if cat == 'error' else 'status' }}">{{ m }}</div>
+      {% endfor %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+  <footer>Meridian Car Rental | Group 10 | CP317B | Sprint 1 prototype</footer>
+</body>
+</html>
